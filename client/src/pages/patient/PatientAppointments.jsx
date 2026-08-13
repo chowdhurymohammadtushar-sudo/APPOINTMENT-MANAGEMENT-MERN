@@ -5,14 +5,24 @@ import StatusBadge from "../../components/StatusBadge";
 
 export default function PatientAppointments() {
   const [appointments, setAppointments] = useState([]);
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // Review states
+  // =====================================================
+  // REVIEW STATES
+  // =====================================================
+
   const [reviewingId, setReviewingId] = useState(null);
+  const [reviewedIds, setReviewedIds] = useState(new Set());
+
   const [rating, setRating] = useState(0);
   const [reviewComment, setReviewComment] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
+
+  // =====================================================
+  // LOAD APPOINTMENTS
+  // =====================================================
 
   const load = async () => {
     try {
@@ -25,10 +35,63 @@ export default function PatientAppointments() {
       );
 
       setAppointments(visibleAppointments);
+
+      // =================================================
+      // CHECK ALREADY REVIEWED APPOINTMENTS
+      // =================================================
+
+      const completedAppointments = visibleAppointments.filter(
+        (appointment) => appointment.status === "completed"
+      );
+
+      const reviewResults = await Promise.all(
+        completedAppointments.map(async (appointment) => {
+          try {
+            const doctorId =
+              appointment.doctor?._id ||
+              appointment.doctor?.id ||
+              appointment.doctorId;
+
+            if (!doctorId) {
+              return null;
+            }
+
+            const response = await api.get(
+              `/reviews/doctor/${doctorId}`
+            );
+
+            const reviews = response.data?.reviews || [];
+
+            const alreadyReviewed = reviews.some((review) => {
+              const reviewAppointment =
+                review.appointment?._id ||
+                review.appointment;
+
+              return (
+                String(reviewAppointment) ===
+                String(appointment._id)
+              );
+            });
+
+            return alreadyReviewed
+              ? appointment._id
+              : null;
+          } catch (err) {
+            console.log("Review check error:", err);
+            return null;
+          }
+        })
+      );
+
+      setReviewedIds(
+        new Set(reviewResults.filter(Boolean))
+      );
     } catch (err) {
       console.log("Load error:", err);
+
       setError(
-        err.response?.data?.message || "Failed to load appointments"
+        err.response?.data?.message ||
+          "Failed to load appointments"
       );
     }
   };
@@ -36,6 +99,10 @@ export default function PatientAppointments() {
   useEffect(() => {
     load();
   }, []);
+
+  // =====================================================
+  // CANCEL APPOINTMENT
+  // =====================================================
 
   const cancel = async (id) => {
     try {
@@ -47,30 +114,33 @@ export default function PatientAppointments() {
       });
 
       setMessage("Appointment cancelled.");
-      load();
+
+      await load();
     } catch (err) {
       console.log("Cancel error:", err);
 
       setError(
-        err.response?.data?.message || "Failed to cancel appointment"
+        err.response?.data?.message ||
+          "Failed to cancel appointment"
       );
     }
   };
 
   // =====================================================
-  // OPEN REVIEW FORM
+  // OPEN REVIEW
   // =====================================================
 
   const openReview = (appointmentId) => {
     setReviewingId(appointmentId);
     setRating(0);
     setReviewComment("");
+
     setMessage("");
     setError("");
   };
 
   // =====================================================
-  // CLOSE REVIEW FORM
+  // CLOSE REVIEW
   // =====================================================
 
   const closeReview = () => {
@@ -96,37 +166,34 @@ export default function PatientAppointments() {
 
     try {
       setReviewLoading(true);
+
       setError("");
       setMessage("");
 
-      const doctorId =
-        appointment.doctor?._id ||
-        appointment.doctor?.id ||
-        appointment.doctorId;
-
-      if (!doctorId) {
-        setError("Doctor information not found.");
-        return;
-      }
-
       await api.post("/reviews", {
-        doctorId,
         appointmentId: appointment._id,
         rating,
         comment: reviewComment.trim(),
+      });
+
+      // Immediately mark as reviewed
+      setReviewedIds((previous) => {
+        const updated = new Set(previous);
+        updated.add(appointment._id);
+        return updated;
       });
 
       setMessage("Review submitted successfully.");
 
       closeReview();
 
-      // Reload appointments
       await load();
     } catch (err) {
       console.log("Review error:", err);
 
       setError(
-        err.response?.data?.message || "Failed to submit review"
+        err.response?.data?.message ||
+          "Failed to submit review"
       );
     } finally {
       setReviewLoading(false);
@@ -140,30 +207,60 @@ export default function PatientAppointments() {
   const downloadPrescription = (item) => {
     const doc = new jsPDF("p", "mm", "a4");
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth =
+      doc.internal.pageSize.getWidth();
 
-    const doctorName = item.doctor?.name || "Doctor";
-    const patientName = item.patient?.name || "Patient";
-    const patientReason = item.reason || "N/A";
+    const pageHeight =
+      doc.internal.pageSize.getHeight();
+
+    const doctorName =
+      item.doctor?.name || "Doctor";
+
+    const patientName =
+      item.patient?.name || "Patient";
+
+    const patientReason =
+      item.reason || "N/A";
+
     const prescription =
-      item.prescription || "No prescription provided";
-    const doctorNote = item.doctorNote || "";
+      item.prescription ||
+      "No prescription provided";
 
-    const prescribedDate = item.prescribedAt
-      ? new Date(item.prescribedAt).toLocaleDateString()
-      : "N/A";
+    const doctorNote =
+      item.doctorNote || "";
 
-    const safeFileName = doctorName
-      .replace(/[^a-z0-9]/gi, "_")
-      .toLowerCase();
+    const prescribedDate =
+      item.prescribedAt
+        ? new Date(
+            item.prescribedAt
+          ).toLocaleDateString()
+        : "N/A";
 
-    // Page background
+    const safeFileName =
+      doctorName
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase();
+
+    // =================================================
+    // PAGE BACKGROUND
+    // =================================================
+
     doc.setFillColor(248, 251, 255);
-    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Main white paper
+    doc.rect(
+      0,
+      0,
+      pageWidth,
+      pageHeight,
+      "F"
+    );
+
+    // =================================================
+    // WHITE PAPER
+    // =================================================
+
     doc.setFillColor(255, 255, 255);
+
     doc.roundedRect(
       12,
       12,
@@ -174,8 +271,12 @@ export default function PatientAppointments() {
       "F"
     );
 
-    // Header
+    // =================================================
+    // HEADER
+    // =================================================
+
     doc.setFillColor(37, 99, 235);
+
     doc.roundedRect(
       12,
       12,
@@ -187,41 +288,77 @@ export default function PatientAppointments() {
     );
 
     doc.setTextColor(255, 255, 255);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.text("MediSchedule", 20, 31);
+
+    doc.text(
+      "MediSchedule",
+      20,
+      31
+    );
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text("Digital Prescription", pageWidth - 65, 24);
+
+    doc.text(
+      "Digital Prescription",
+      pageWidth - 65,
+      24
+    );
+
     doc.text(
       "Generated by MediSchedule",
       pageWidth - 65,
       31
     );
 
-    // Doctor info
+    // =================================================
+    // DOCTOR INFO
+    // =================================================
+
     doc.setTextColor(15, 23, 42);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text(`Dr. ${doctorName}`, 20, 55);
+
+    doc.text(
+      `Dr. ${doctorName}`,
+      20,
+      55
+    );
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
+
     doc.setTextColor(100, 116, 139);
+
     doc.text(
       "Registered Medical Practitioner",
       20,
       62
     );
 
-    // Divider
+    // =================================================
+    // DIVIDER
+    // =================================================
+
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(20, 69, pageWidth - 20, 69);
 
-    // Patient info
+    doc.line(
+      20,
+      69,
+      pageWidth - 20,
+      69
+    );
+
+    // =================================================
+    // PATIENT INFORMATION
+    // =================================================
+
     doc.setFillColor(241, 245, 249);
+
     doc.roundedRect(
       20,
       78,
@@ -233,9 +370,15 @@ export default function PatientAppointments() {
     );
 
     doc.setTextColor(15, 23, 42);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Patient Information", 26, 89);
+
+    doc.text(
+      "Patient Information",
+      26,
+      89
+    );
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
@@ -264,16 +407,22 @@ export default function PatientAppointments() {
       115
     );
 
-    // Rx section
+    // =================================================
+    // RX
+    // =================================================
+
     let y = 135;
 
     doc.setTextColor(37, 99, 235);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(30);
+
     doc.text("Rx", 20, y);
 
     doc.setDrawColor(37, 99, 235);
     doc.setLineWidth(0.7);
+
     doc.line(
       43,
       y - 4,
@@ -284,14 +433,21 @@ export default function PatientAppointments() {
     y += 16;
 
     doc.setTextColor(15, 23, 42);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text("Prescription", 20, y);
+
+    doc.text(
+      "Prescription",
+      20,
+      y
+    );
 
     y += 10;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
+
     doc.setTextColor(51, 65, 85);
 
     const prescriptionLines =
@@ -306,11 +462,19 @@ export default function PatientAppointments() {
         y = 25;
       }
 
-      doc.text(line, 22, y);
+      doc.text(
+        line,
+        22,
+        y
+      );
+
       y += 7;
     });
 
-    // Doctor note
+    // =================================================
+    // DOCTOR NOTE
+    // =================================================
+
     if (doctorNote) {
       y += 10;
 
@@ -320,7 +484,12 @@ export default function PatientAppointments() {
       }
 
       doc.setTextColor(15, 23, 42);
-      doc.setFont("helvetica", "bold");
+
+      doc.setFont(
+        "helvetica",
+        "bold"
+      );
+
       doc.setFontSize(14);
 
       doc.text(
@@ -331,9 +500,18 @@ export default function PatientAppointments() {
 
       y += 10;
 
-      doc.setFont("helvetica", "normal");
+      doc.setFont(
+        "helvetica",
+        "normal"
+      );
+
       doc.setFontSize(11);
-      doc.setTextColor(51, 65, 85);
+
+      doc.setTextColor(
+        51,
+        65,
+        85
+      );
 
       const noteLines =
         doc.splitTextToSize(
@@ -347,12 +525,20 @@ export default function PatientAppointments() {
           y = 25;
         }
 
-        doc.text(line, 22, y);
+        doc.text(
+          line,
+          22,
+          y
+        );
+
         y += 7;
       });
     }
 
-    // Prescribed date
+    // =================================================
+    // PRESCRIBED DATE
+    // =================================================
+
     y += 12;
 
     if (y > 245) {
@@ -360,9 +546,18 @@ export default function PatientAppointments() {
       y = 25;
     }
 
-    doc.setFont("helvetica", "normal");
+    doc.setFont(
+      "helvetica",
+      "normal"
+    );
+
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
+
+    doc.setTextColor(
+      100,
+      116,
+      139
+    );
 
     doc.text(
       `Prescribed on: ${prescribedDate}`,
@@ -370,8 +565,15 @@ export default function PatientAppointments() {
       y
     );
 
-    // Signature
-    doc.setDrawColor(148, 163, 184);
+    // =================================================
+    // SIGNATURE
+    // =================================================
+
+    doc.setDrawColor(
+      148,
+      163,
+      184
+    );
 
     doc.line(
       pageWidth - 75,
@@ -380,8 +582,17 @@ export default function PatientAppointments() {
       pageHeight - 45
     );
 
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
+    doc.setTextColor(
+      15,
+      23,
+      42
+    );
+
+    doc.setFont(
+      "helvetica",
+      "bold"
+    );
+
     doc.setFontSize(11);
 
     doc.text(
@@ -390,9 +601,18 @@ export default function PatientAppointments() {
       pageHeight - 38
     );
 
-    doc.setFont("helvetica", "normal");
+    doc.setFont(
+      "helvetica",
+      "normal"
+    );
+
     doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
+
+    doc.setTextColor(
+      100,
+      116,
+      139
+    );
 
     doc.text(
       "Doctor Signature",
@@ -400,8 +620,15 @@ export default function PatientAppointments() {
       pageHeight - 32
     );
 
-    // Footer
-    doc.setDrawColor(226, 232, 240);
+    // =================================================
+    // FOOTER
+    // =================================================
+
+    doc.setDrawColor(
+      226,
+      232,
+      240
+    );
 
     doc.line(
       20,
@@ -410,9 +637,18 @@ export default function PatientAppointments() {
       pageHeight - 22
     );
 
-    doc.setFont("helvetica", "normal");
+    doc.setFont(
+      "helvetica",
+      "normal"
+    );
+
     doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
+
+    doc.setTextColor(
+      100,
+      116,
+      139
+    );
 
     doc.text(
       "This is a digitally generated prescription from MediSchedule.",
@@ -436,7 +672,8 @@ export default function PatientAppointments() {
           <h1>My appointments</h1>
 
           <p>
-            Review status, prescription and cancel active
+            Review status, serial number,
+            prescription and cancel active
             bookings.
           </p>
         </div>
@@ -455,216 +692,375 @@ export default function PatientAppointments() {
       )}
 
       <div className="card-list">
+
         {appointments.length === 0 && (
           <div className="empty-card">
             No appointments yet.
           </div>
         )}
 
-        {appointments.map((item) => (
-          <article
-            className="content-card stacked"
-            key={item._id}
-          >
-            <div className="content-card-header">
-              <div>
-                <h3>
-                  {item.doctor?.name || "Doctor"}
-                </h3>
+        {appointments.map((item) => {
+          const alreadyReviewed =
+            reviewedIds.has(item._id);
 
-                <p>
-                  {item.appointmentDate} ·{" "}
-                  {item.startTime}–{item.endTime}
-                </p>
+          return (
+            <article
+              className="content-card stacked"
+              key={item._id}
+            >
 
-                <small>
-                  <strong>Reason:</strong>{" "}
-                  {item.reason}
-                </small>
+              {/* ==========================================
+                  APPOINTMENT HEADER
+              ========================================== */}
+
+              <div className="content-card-header">
+
+                <div>
+                  <h3>
+                    {item.doctor?.name ||
+                      "Doctor"}
+                  </h3>
+
+                  <p>
+                    {item.appointmentDate} ·{" "}
+                    {item.startTime}–
+                    {item.endTime}
+                  </p>
+
+                  <small>
+                    <strong>
+                      Reason:
+                    </strong>{" "}
+                    {item.reason}
+                  </small>
+                </div>
+
+                <StatusBadge
+                  status={item.status}
+                />
+
               </div>
 
-              <StatusBadge status={item.status} />
-            </div>
+              {/* ==========================================
+                  SERIAL INFORMATION
+              ========================================== */}
 
-            {item.symptoms && (
-              <p>
-                <strong>Symptoms:</strong>{" "}
-                {item.symptoms}
-              </p>
-            )}
+              {item.serialNumber != null && (
+                <div
+                  className="serial-card"
+                  style={{
+                    marginTop: "15px",
+                    padding: "15px",
+                    borderRadius: "10px",
+                    background: "#eff6ff",
+                    border:
+                      "1px solid #bfdbfe",
+                  }}
+                >
 
-            {/* =================================================
-                PRESCRIPTION
-            ================================================= */}
-
-            {item.status === "completed" &&
-              item.prescription && (
-                <div className="prescription-view">
-                  <h4>Prescription</h4>
-
-                  <p>{item.prescription}</p>
-
-                  {item.doctorNote && (
-                    <>
-                      <h4>Doctor note</h4>
-                      <p>{item.doctorNote}</p>
-                    </>
-                  )}
-
-                  {item.prescribedAt && (
-                    <small>
-                      Prescribed on{" "}
-                      {new Date(
-                        item.prescribedAt
-                      ).toLocaleDateString()}
-                    </small>
-                  )}
-
-                  <br />
-                  <br />
-
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      downloadPrescription(item)
-                    }
+                  <h4
+                    style={{
+                      margin:
+                        "0 0 10px",
+                    }}
                   >
-                    Download Prescription PDF
-                  </button>
+                    🩺 Appointment
+                    Serial
+                  </h4>
+
+                  <p
+                    style={{
+                      margin: "6px 0",
+                    }}
+                  >
+                    <strong>
+                      Your Serial:
+                    </strong>{" "}
+                    #{item.serialNumber}
+                  </p>
+
+                  <p
+                    style={{
+                      margin: "6px 0",
+                    }}
+                  >
+                    <strong>
+                      Patients Before You:
+                    </strong>{" "}
+                    {item.patientsBefore ?? 0}
+                  </p>
+
+                  <p
+                    style={{
+                      margin: "6px 0",
+                    }}
+                  >
+                    <strong>
+                      Total Patients:
+                    </strong>{" "}
+                    {item.totalPatients ?? 0}
+                  </p>
+
                 </div>
               )}
 
-            {/* =================================================
-                REVIEW SECTION
-            ================================================= */}
+              {/* ==========================================
+                  SYMPTOMS
+              ========================================== */}
 
-            {item.status === "completed" && (
-              <div className="review-section">
-                {reviewingId !== item._id ? (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      openReview(item._id)
-                    }
-                  >
-                    ⭐ Give Review
-                  </button>
-                ) : (
-                  <div className="review-form">
+              {item.symptoms && (
+                <p>
+                  <strong>
+                    Symptoms:
+                  </strong>{" "}
+                  {item.symptoms}
+                </p>
+              )}
+
+              {/* ==========================================
+                  PRESCRIPTION
+              ========================================== */}
+
+              {item.status ===
+                "completed" &&
+                item.prescription && (
+                  <div className="prescription-view">
+
                     <h4>
-                      Review Dr.{" "}
-                      {item.doctor?.name ||
-                        "Doctor"}
+                      Prescription
                     </h4>
 
-                    {/* STAR RATING */}
-
-                    <div className="star-rating">
-                      {[1, 2, 3, 4, 5].map(
-                        (star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            className={
-                              star <= rating
-                                ? "star active"
-                                : "star"
-                            }
-                            onClick={() =>
-                              setRating(star)
-                            }
-                          >
-                            ★
-                          </button>
-                        )
-                      )}
-                    </div>
-
-                    <p className="muted">
-                      {rating === 0 &&
-                        "Select your rating"}
-
-                      {rating === 1 &&
-                        "Poor"}
-
-                      {rating === 2 &&
-                        "Fair"}
-
-                      {rating === 3 &&
-                        "Good"}
-
-                      {rating === 4 &&
-                        "Very Good"}
-
-                      {rating === 5 &&
-                        "Excellent"}
+                    <p>
+                      {item.prescription}
                     </p>
 
-                    {/* COMMENT */}
+                    {item.doctorNote && (
+                      <>
+                        <h4>
+                          Doctor note
+                        </h4>
 
-                    <textarea
-                      value={reviewComment}
-                      onChange={(e) =>
-                        setReviewComment(
-                          e.target.value
+                        <p>
+                          {item.doctorNote}
+                        </p>
+                      </>
+                    )}
+
+                    {item.prescribedAt && (
+                      <small>
+                        Prescribed on{" "}
+                        {new Date(
+                          item.prescribedAt
+                        ).toLocaleDateString()}
+                      </small>
+                    )}
+
+                    <br />
+                    <br />
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() =>
+                        downloadPrescription(
+                          item
                         )
                       }
-                      placeholder="Write your experience with this doctor..."
-                      rows={4}
-                    />
+                    >
+                      Download Prescription PDF
+                    </button>
 
-                    {/* BUTTONS */}
-
-                    <div className="button-row">
-                      <button
-                        type="button"
-                        disabled={reviewLoading}
-                        onClick={() =>
-                          submitReview(item)
-                        }
-                      >
-                        {reviewLoading
-                          ? "Submitting..."
-                          : "Submit Review"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={closeReview}
-                      >
-                        Cancel
-                      </button>
-                    </div>
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* =================================================
-                APPOINTMENT ACTIONS
-            ================================================= */}
+              {/* ==========================================
+                  REVIEW SECTION
+              ========================================== */}
 
-            <div className="appointment-actions">
-              {[
-                "pending",
-                "confirmed",
-              ].includes(item.status) && (
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    cancel(item._id)
-                  }
+              {item.status ===
+                "completed" && (
+
+                <div
+                  className="review-section"
+                  style={{
+                    marginTop: "15px",
+                  }}
                 >
-                  Cancel
-                </button>
+
+                  {/* ALREADY REVIEWED */}
+
+                  {alreadyReviewed ? (
+
+                    <div
+                      className="alert success"
+                      style={{
+                        margin: "0",
+                      }}
+                    >
+                      ⭐ You already reviewed
+                      this appointment.
+                    </div>
+
+                  ) : reviewingId !==
+                    item._id ? (
+
+                    /* GIVE REVIEW */
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() =>
+                        openReview(
+                          item._id
+                        )
+                      }
+                    >
+                      ⭐ Give Review
+                    </button>
+
+                  ) : (
+
+                    /* REVIEW FORM */
+
+                    <div className="review-form">
+
+                      <h4>
+                        Review Dr.{" "}
+                        {item.doctor?.name ||
+                          "Doctor"}
+                      </h4>
+
+                      {/* STAR RATING */}
+
+                      <div className="star-rating">
+
+                        {[1, 2, 3, 4, 5].map(
+                          (star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              className={
+                                star <= rating
+                                  ? "star active"
+                                  : "star"
+                              }
+                              onClick={() =>
+                                setRating(
+                                  star
+                                )
+                              }
+                            >
+                              ★
+                            </button>
+                          )
+                        )}
+
+                      </div>
+
+                      <p className="muted">
+                        {rating === 0 &&
+                          "Select your rating"}
+
+                        {rating === 1 &&
+                          "Poor"}
+
+                        {rating === 2 &&
+                          "Fair"}
+
+                        {rating === 3 &&
+                          "Good"}
+
+                        {rating === 4 &&
+                          "Very Good"}
+
+                        {rating === 5 &&
+                          "Excellent"}
+                      </p>
+
+                      {/* COMMENT */}
+
+                      <textarea
+                        value={
+                          reviewComment
+                        }
+                        onChange={(e) =>
+                          setReviewComment(
+                            e.target.value
+                          )
+                        }
+                        placeholder="Write your experience with this doctor..."
+                        rows={4}
+                      />
+
+                      {/* BUTTONS */}
+
+                      <div className="button-row">
+
+                        <button
+                          type="button"
+                          disabled={
+                            reviewLoading
+                          }
+                          onClick={() =>
+                            submitReview(
+                              item
+                            )
+                          }
+                        >
+                          {reviewLoading
+                            ? "Submitting..."
+                            : "Submit Review"}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={
+                            closeReview
+                          }
+                        >
+                          Cancel
+                        </button>
+
+                      </div>
+
+                    </div>
+                  )}
+
+                </div>
               )}
-            </div>
-          </article>
-        ))}
+
+              {/* ==========================================
+                  APPOINTMENT ACTIONS
+              ========================================== */}
+
+              <div className="appointment-actions">
+
+                {[
+                  "pending",
+                  "confirmed",
+                ].includes(
+                  item.status
+                ) && (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() =>
+                      cancel(
+                        item._id
+                      )
+                    }
+                  >
+                    Cancel
+                  </button>
+                )}
+
+              </div>
+
+            </article>
+          );
+        })}
+
       </div>
     </section>
   );

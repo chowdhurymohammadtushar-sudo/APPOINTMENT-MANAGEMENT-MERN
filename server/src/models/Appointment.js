@@ -17,33 +17,43 @@ const appointmentSchema = new mongoose.Schema(
     appointmentDate: {
       type: String,
       required: true,
-      match: /^\d{4}-\d{2}-\d{2}$/,
     },
 
     startTime: {
       type: String,
       required: true,
-      match: /^\d{2}:\d{2}$/,
     },
 
     endTime: {
       type: String,
       required: true,
-      match: /^\d{2}:\d{2}$/,
+    },
+
+    // ==========================================
+    // SERIAL NUMBER
+    // ==========================================
+    // Serial is calculated according to
+    // appointment time, not booking order.
+    //
+    // So it should NOT be required in DB.
+    // ==========================================
+
+    serialNumber: {
+      type: Number,
+      default: null,
+      min: 1,
     },
 
     reason: {
       type: String,
       required: true,
       trim: true,
-      maxlength: 500,
     },
 
     symptoms: {
       type: String,
-      trim: true,
       default: "",
-      maxlength: 1000,
+      trim: true,
     },
 
     status: {
@@ -52,8 +62,8 @@ const appointmentSchema = new mongoose.Schema(
         "pending",
         "confirmed",
         "rejected",
-        "cancelled",
         "completed",
+        "cancelled",
         "no-show",
       ],
       default: "pending",
@@ -61,38 +71,68 @@ const appointmentSchema = new mongoose.Schema(
 
     doctorNote: {
       type: String,
-      trim: true,
       default: "",
-      maxlength: 2000,
     },
 
     prescription: {
       type: String,
-      trim: true,
       default: "",
-      maxlength: 5000,
     },
 
     prescribedAt: {
       type: Date,
+      default: null,
     },
 
     cancellationReason: {
       type: String,
-      trim: true,
       default: "",
     },
 
+    /*
+      Used to prevent two patients
+      from booking the same doctor/date/time.
+    */
     bookingKey: {
       type: String,
       unique: true,
       sparse: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-appointmentSchema.index({ doctor: 1, appointmentDate: 1, startTime: 1 });
-appointmentSchema.index({ patient: 1, appointmentDate: -1 });
 
-export default mongoose.model("Appointment", appointmentSchema);
+// ==========================================
+// INDEX FOR QUEUE / SERIAL
+// ==========================================
+
+appointmentSchema.index({
+  doctor: 1,
+  appointmentDate: 1,
+  serialNumber: 1,
+});
+
+
+// ==========================================
+// INDEX FOR TIME-BASED QUEUE
+// ==========================================
+
+appointmentSchema.index({
+  doctor: 1,
+  appointmentDate: 1,
+  startTime: 1,
+  status: 1,
+});
+
+
+// ==========================================
+// EXPORT
+// ==========================================
+
+export default mongoose.model(
+  "Appointment",
+  appointmentSchema
+);

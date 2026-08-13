@@ -17,6 +17,7 @@ export const createReview = asyncHandler(async (req, res) => {
     comment = "",
   } = req.body;
 
+  // Required fields
   if (!appointmentId || rating === undefined) {
     return res.status(400).json({
       success: false,
@@ -24,6 +25,7 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
+  // Validate rating
   const numericRating = Number(rating);
 
   if (
@@ -37,6 +39,7 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
+  // Find appointment
   const appointment = await Appointment.findById(appointmentId);
 
   if (!appointment) {
@@ -46,10 +49,7 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
-  /*
-    Make sure this appointment belongs
-    to the logged-in patient
-  */
+  // Make sure appointment belongs to logged-in patient
   if (String(appointment.patient) !== String(patientId)) {
     return res.status(403).json({
       success: false,
@@ -57,9 +57,7 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
-  /*
-    Review only after appointment is completed
-  */
+  // Review only completed appointments
   if (appointment.status !== "completed") {
     return res.status(400).json({
       success: false,
@@ -67,9 +65,7 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
-  /*
-    Prevent duplicate review
-  */
+  // Prevent duplicate review
   const existingReview = await Review.findOne({
     appointment: appointmentId,
   });
@@ -81,14 +77,30 @@ export const createReview = asyncHandler(async (req, res) => {
     });
   }
 
-  const review = await Review.create({
-    doctor: appointment.doctor,
-    patient: patientId,
-    appointment: appointmentId,
-    rating: numericRating,
-    comment: comment.trim(),
-  });
+  // Create review
+  let review;
 
+  try {
+    review = await Review.create({
+      doctor: appointment.doctor,
+      patient: patientId,
+      appointment: appointmentId,
+      rating: numericRating,
+      comment: String(comment).trim(),
+    });
+  } catch (err) {
+    // MongoDB duplicate key error
+    if (err.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already reviewed this appointment",
+      });
+    }
+
+    throw err;
+  }
+
+  // Populate review information
   const populatedReview = await Review.findById(review._id)
     .populate("patient", "name")
     .populate("doctor", "name");
@@ -116,8 +128,10 @@ export const getDoctorReviews = asyncHandler(async (req, res) => {
 
   const averageRating =
     totalReviews > 0
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) /
-        totalReviews
+      ? reviews.reduce(
+          (sum, review) => sum + review.rating,
+          0
+        ) / totalReviews
       : 0;
 
   res.json({

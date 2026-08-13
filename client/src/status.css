@@ -1,0 +1,60 @@
+.status-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px;
+
+  padding: 8px 14px;
+  border-radius: 950px;
+
+  font-size: 12px;
+  font-weight: bold;
+
+  border: 2px solid transparent;
+
+  /* FORCE OVERRIDE */
+  background: none !important;
+
+}
+
+/* COMPLETED */
+.status-completed {
+  background: #68bc85 !important;
+
+  color: #fafffb !important;
+  border: 2px solid #34d399 !important;
+}
+
+/* REJECTED */
+.status-rejected {
+  background: #df0606 !important;
+  color: #d81414 !important;
+  border: 2px solid #ef0505 !important;
+}
+
+/* NO SHOW */
+.status-no-show {
+  background: #ffe4e6 !important;
+  color: #9f1239 !important;
+  border: 2px solid #fb7185 !important;
+}
+
+/* CANCELLED */
+.status-cancelled {
+  background: #ede9fe !important;
+  color: #5b21b6 !important;
+  border: 2px solid #a78bfa !important;
+}
+
+/* CONFIRMED */
+.status-confirmed {
+  background: #dbeafe !important;
+  color: #1d4ed8 !important;
+  border: 2px solid #60a5fa !important;
+}
+
+/* PENDING */
+.status-pending {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+  border: 2px solid #d1d5db !important;
+}

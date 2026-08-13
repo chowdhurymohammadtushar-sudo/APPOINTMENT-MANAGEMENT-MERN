@@ -1,0 +1,671 @@
+import jsPDF from "jspdf";
+import { useEffect, useState } from "react";
+import api from "../../api/api";
+import StatusBadge from "../../components/StatusBadge";
+
+export default function PatientAppointments() {
+  const [appointments, setAppointments] = useState([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  // Review states
+  const [reviewingId, setReviewingId] = useState(null);
+  const [rating, setRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  const load = async () => {
+    try {
+      setError("");
+
+      const { data } = await api.get("/appointments/mine");
+
+      const visibleAppointments = (data.appointments || []).filter(
+        (appointment) => appointment.status !== "rejected"
+      );
+
+      setAppointments(visibleAppointments);
+    } catch (err) {
+      console.log("Load error:", err);
+      setError(
+        err.response?.data?.message || "Failed to load appointments"
+      );
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const cancel = async (id) => {
+    try {
+      setError("");
+      setMessage("");
+
+      await api.patch(`/appointments/${id}/cancel`, {
+        reason: "Cancelled by patient",
+      });
+
+      setMessage("Appointment cancelled.");
+      load();
+    } catch (err) {
+      console.log("Cancel error:", err);
+
+      setError(
+        err.response?.data?.message || "Failed to cancel appointment"
+      );
+    }
+  };
+
+  // =====================================================
+  // OPEN REVIEW FORM
+  // =====================================================
+
+  const openReview = (appointmentId) => {
+    setReviewingId(appointmentId);
+    setRating(0);
+    setReviewComment("");
+    setMessage("");
+    setError("");
+  };
+
+  // =====================================================
+  // CLOSE REVIEW FORM
+  // =====================================================
+
+  const closeReview = () => {
+    setReviewingId(null);
+    setRating(0);
+    setReviewComment("");
+  };
+
+  // =====================================================
+  // SUBMIT REVIEW
+  // =====================================================
+
+  const submitReview = async (appointment) => {
+    if (!rating) {
+      setError("Please select a rating.");
+      return;
+    }
+
+    if (!reviewComment.trim()) {
+      setError("Please write a comment.");
+      return;
+    }
+
+    try {
+      setReviewLoading(true);
+      setError("");
+      setMessage("");
+
+      const doctorId =
+        appointment.doctor?._id ||
+        appointment.doctor?.id ||
+        appointment.doctorId;
+
+      if (!doctorId) {
+        setError("Doctor information not found.");
+        return;
+      }
+
+      await api.post("/reviews", {
+        doctorId,
+        appointmentId: appointment._id,
+        rating,
+        comment: reviewComment.trim(),
+      });
+
+      setMessage("Review submitted successfully.");
+
+      closeReview();
+
+      // Reload appointments
+      await load();
+    } catch (err) {
+      console.log("Review error:", err);
+
+      setError(
+        err.response?.data?.message || "Failed to submit review"
+      );
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  // =====================================================
+  // DOWNLOAD PRESCRIPTION
+  // =====================================================
+
+  const downloadPrescription = (item) => {
+    const doc = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    const doctorName = item.doctor?.name || "Doctor";
+    const patientName = item.patient?.name || "Patient";
+    const patientReason = item.reason || "N/A";
+    const prescription =
+      item.prescription || "No prescription provided";
+    const doctorNote = item.doctorNote || "";
+
+    const prescribedDate = item.prescribedAt
+      ? new Date(item.prescribedAt).toLocaleDateString()
+      : "N/A";
+
+    const safeFileName = doctorName
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
+
+    // Page background
+    doc.setFillColor(248, 251, 255);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    // Main white paper
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(
+      12,
+      12,
+      pageWidth - 24,
+      pageHeight - 24,
+      4,
+      4,
+      "F"
+    );
+
+    // Header
+    doc.setFillColor(37, 99, 235);
+    doc.roundedRect(
+      12,
+      12,
+      pageWidth - 24,
+      30,
+      4,
+      4,
+      "F"
+    );
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("MediSchedule", 20, 31);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("Digital Prescription", pageWidth - 65, 24);
+    doc.text(
+      "Generated by MediSchedule",
+      pageWidth - 65,
+      31
+    );
+
+    // Doctor info
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(`Dr. ${doctorName}`, 20, 55);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      "Registered Medical Practitioner",
+      20,
+      62
+    );
+
+    // Divider
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(20, 69, pageWidth - 20, 69);
+
+    // Patient info
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(
+      20,
+      78,
+      pageWidth - 40,
+      40,
+      3,
+      3,
+      "F"
+    );
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Patient Information", 26, 89);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+
+    doc.text(
+      `Patient Name: ${patientName}`,
+      26,
+      99
+    );
+
+    doc.text(
+      `Appointment Date: ${item.appointmentDate}`,
+      26,
+      107
+    );
+
+    doc.text(
+      `Time: ${item.startTime} - ${item.endTime}`,
+      110,
+      107
+    );
+
+    doc.text(
+      `Reason: ${patientReason}`,
+      26,
+      115
+    );
+
+    // Rx section
+    let y = 135;
+
+    doc.setTextColor(37, 99, 235);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(30);
+    doc.text("Rx", 20, y);
+
+    doc.setDrawColor(37, 99, 235);
+    doc.setLineWidth(0.7);
+    doc.line(
+      43,
+      y - 4,
+      pageWidth - 20,
+      y - 4
+    );
+
+    y += 16;
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Prescription", 20, y);
+
+    y += 10;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(51, 65, 85);
+
+    const prescriptionLines =
+      doc.splitTextToSize(
+        prescription,
+        pageWidth - 40
+      );
+
+    prescriptionLines.forEach((line) => {
+      if (y > 250) {
+        doc.addPage();
+        y = 25;
+      }
+
+      doc.text(line, 22, y);
+      y += 7;
+    });
+
+    // Doctor note
+    if (doctorNote) {
+      y += 10;
+
+      if (y > 240) {
+        doc.addPage();
+        y = 25;
+      }
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+
+      doc.text(
+        "Doctor Advice / Note",
+        20,
+        y
+      );
+
+      y += 10;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(51, 65, 85);
+
+      const noteLines =
+        doc.splitTextToSize(
+          doctorNote,
+          pageWidth - 40
+        );
+
+      noteLines.forEach((line) => {
+        if (y > 250) {
+          doc.addPage();
+          y = 25;
+        }
+
+        doc.text(line, 22, y);
+        y += 7;
+      });
+    }
+
+    // Prescribed date
+    y += 12;
+
+    if (y > 245) {
+      doc.addPage();
+      y = 25;
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+
+    doc.text(
+      `Prescribed on: ${prescribedDate}`,
+      20,
+      y
+    );
+
+    // Signature
+    doc.setDrawColor(148, 163, 184);
+
+    doc.line(
+      pageWidth - 75,
+      pageHeight - 45,
+      pageWidth - 20,
+      pageHeight - 45
+    );
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+
+    doc.text(
+      `Dr. ${doctorName}`,
+      pageWidth - 75,
+      pageHeight - 38
+    );
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+
+    doc.text(
+      "Doctor Signature",
+      pageWidth - 75,
+      pageHeight - 32
+    );
+
+    // Footer
+    doc.setDrawColor(226, 232, 240);
+
+    doc.line(
+      20,
+      pageHeight - 22,
+      pageWidth - 20,
+      pageHeight - 22
+    );
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+
+    doc.text(
+      "This is a digitally generated prescription from MediSchedule.",
+      20,
+      pageHeight - 15
+    );
+
+    doc.save(
+      `prescription-${item.appointmentDate}-${safeFileName}.pdf`
+    );
+  };
+
+  // =====================================================
+  // UI
+  // =====================================================
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <h1>My appointments</h1>
+
+          <p>
+            Review status, prescription and cancel active
+            bookings.
+          </p>
+        </div>
+      </div>
+
+      {message && (
+        <div className="alert success">
+          {message}
+        </div>
+      )}
+
+      {error && (
+        <div className="alert error">
+          {error}
+        </div>
+      )}
+
+      <div className="card-list">
+        {appointments.length === 0 && (
+          <div className="empty-card">
+            No appointments yet.
+          </div>
+        )}
+
+        {appointments.map((item) => (
+          <article
+            className="content-card stacked"
+            key={item._id}
+          >
+            <div className="content-card-header">
+              <div>
+                <h3>
+                  {item.doctor?.name || "Doctor"}
+                </h3>
+
+                <p>
+                  {item.appointmentDate} ·{" "}
+                  {item.startTime}–{item.endTime}
+                </p>
+
+                <small>
+                  <strong>Reason:</strong>{" "}
+                  {item.reason}
+                </small>
+              </div>
+
+              <StatusBadge status={item.status} />
+            </div>
+
+            {item.symptoms && (
+              <p>
+                <strong>Symptoms:</strong>{" "}
+                {item.symptoms}
+              </p>
+            )}
+
+            {/* =================================================
+                PRESCRIPTION
+            ================================================= */}
+
+            {item.status === "completed" &&
+              item.prescription && (
+                <div className="prescription-view">
+                  <h4>Prescription</h4>
+
+                  <p>{item.prescription}</p>
+
+                  {item.doctorNote && (
+                    <>
+                      <h4>Doctor note</h4>
+                      <p>{item.doctorNote}</p>
+                    </>
+                  )}
+
+                  {item.prescribedAt && (
+                    <small>
+                      Prescribed on{" "}
+                      {new Date(
+                        item.prescribedAt
+                      ).toLocaleDateString()}
+                    </small>
+                  )}
+
+                  <br />
+                  <br />
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() =>
+                      downloadPrescription(item)
+                    }
+                  >
+                    Download Prescription PDF
+                  </button>
+                </div>
+              )}
+
+            {/* =================================================
+                REVIEW SECTION
+            ================================================= */}
+
+            {item.status === "completed" && (
+              <div className="review-section">
+                {reviewingId !== item._id ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() =>
+                      openReview(item._id)
+                    }
+                  >
+                    ⭐ Give Review
+                  </button>
+                ) : (
+                  <div className="review-form">
+                    <h4>
+                      Review Dr.{" "}
+                      {item.doctor?.name ||
+                        "Doctor"}
+                    </h4>
+
+                    {/* STAR RATING */}
+
+                    <div className="star-rating">
+                      {[1, 2, 3, 4, 5].map(
+                        (star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            className={
+                              star <= rating
+                                ? "star active"
+                                : "star"
+                            }
+                            onClick={() =>
+                              setRating(star)
+                            }
+                          >
+                            ★
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    <p className="muted">
+                      {rating === 0 &&
+                        "Select your rating"}
+
+                      {rating === 1 &&
+                        "Poor"}
+
+                      {rating === 2 &&
+                        "Fair"}
+
+                      {rating === 3 &&
+                        "Good"}
+
+                      {rating === 4 &&
+                        "Very Good"}
+
+                      {rating === 5 &&
+                        "Excellent"}
+                    </p>
+
+                    {/* COMMENT */}
+
+                    <textarea
+                      value={reviewComment}
+                      onChange={(e) =>
+                        setReviewComment(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Write your experience with this doctor..."
+                      rows={4}
+                    />
+
+                    {/* BUTTONS */}
+
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        disabled={reviewLoading}
+                        onClick={() =>
+                          submitReview(item)
+                        }
+                      >
+                        {reviewLoading
+                          ? "Submitting..."
+                          : "Submit Review"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={closeReview}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* =================================================
+                APPOINTMENT ACTIONS
+            ================================================= */}
+
+            <div className="appointment-actions">
+              {[
+                "pending",
+                "confirmed",
+              ].includes(item.status) && (
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() =>
+                    cancel(item._id)
+                  }
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}

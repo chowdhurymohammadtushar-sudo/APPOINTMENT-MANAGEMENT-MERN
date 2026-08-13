@@ -1,0 +1,16 @@
+.prescription-view {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #f0f7ff;
+  border: 1px solid #cfe3ff;
+}
+
+.prescription-view h4 {
+  margin: 0 0 8px;
+}
+
+.prescription-view p {
+  white-space: pre-line;
+  margin: 0 0 12px;
+}

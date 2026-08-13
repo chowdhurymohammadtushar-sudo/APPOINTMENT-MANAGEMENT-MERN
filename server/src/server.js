@@ -4,6 +4,7 @@ dotenv.config();
 import app from "./app.js";
 import { connectDB } from "./config/db.js";
 import User from "./models/User.js";
+import { startReminderJob, runReminderJob } from "./jobs/reminderJob.js";
 
 const createAdmin = async () => {
   try {
@@ -80,6 +81,12 @@ const start = async () => {
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+
+      
+      startReminderJob();
+
+
+      runReminderJob();
     });
   } catch (error) {
     console.error("Server startup error:", error.message);

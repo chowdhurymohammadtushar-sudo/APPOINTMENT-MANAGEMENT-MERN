@@ -89,6 +89,18 @@ const appointmentSchema = new mongoose.Schema(
       default: "",
     },
 
+    // ==========================================
+    // REMINDER TRACKING
+    // ==========================================
+    // Prevents the same appointment from getting
+    // duplicate email/SMS reminders on every cron run.
+    // ==========================================
+
+    reminderSent: {
+      type: Boolean,
+      default: false,
+    },
+
     /*
       Used to prevent two patients
       from booking the same doctor/date/time.

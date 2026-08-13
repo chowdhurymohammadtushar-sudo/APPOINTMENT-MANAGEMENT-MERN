@@ -693,8 +693,7 @@ export default function DoctorsPage() {
           experience
         ) && (
           <p className="muted">
-            No doctors found matching your
-            filters.
+            Please click Find Doctors!
           </p>
         )}
 
